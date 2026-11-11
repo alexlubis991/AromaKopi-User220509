@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin · Aroma Kopi</title>
+<style>
+:root{color-scheme:dark;--bg:#1a120d;--card:#251a13;--line:#3b2a20;--tx:#f3e9dc;--mu:#b9a58e;--gold:#d4a76a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;padding:16px}
+main{max-width:720px;margin:0 auto}
+h1{color:var(--gold);font-size:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.card.done{opacity:.5}
+input,button{font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:#1d140e;color:var(--tx);width:100%;margin-bottom:8px}
+button{background:var(--gold);color:#2a1a0e;border:0;font-weight:600;cursor:pointer}
+.r{display:flex;justify-content:space-between;gap:10px}
+.s{color:var(--mu);font-size:13px;padding-left:12px}
+.t{color:var(--gold);font-weight:700;font-size:18px}
+#bar{display:flex;justify-content:space-between;align-items:center}
+#bar button{width:auto;padding:8px 14px}
+</style>
+</head>
+<body>
+<main>
+<div id="login" class="card">
+<h1>Masuk Penjual</h1>
+<input id="em" type="email" placeholder="Email" autocomplete="username">
+<input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+<button id="go">Masuk</button>
+<div id="err" style="color:#e29a8b"></div>
+</div>
+<div id="app" hidden>
+<div id="bar"><h1>Pesanan Masuk</h1><button id="out">Keluar</button></div>
+<div id="list"></div>
+</div>
+</main>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {getFirestore,collection,query,orderBy,onSnapshot,doc,updateDoc} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+// GANTI dengan konfigurasi dari Firebase Console (sama dengan di index.html)
+const firebaseConfig = {
+  apiKey: "AIzaSyBHC2QaUPzbRZSR6tEaeJyygu61o2dnCvE",
+  authDomain: "aroma-kopi-af837.firebaseapp.com",
+  projectId: "aroma-kopi-af837",
+  appId: "1:984550857645:web:8f14ace9842e1d83535f24",
+};
+
+const app=initializeApp(firebaseConfig);
+const auth=getAuth(app),db=getFirestore(app);
+const $=id=>document.getElementById(id);
+const rp=n=>'Rp '+Number(n).toLocaleString('id-ID');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+$('go').onclick=async()=>{
+  $('err').textContent='';
+  try{await signInWithEmailAndPassword(auth,$('em').value.trim(),$('pw').value)}
+  catch(e){$('err').textContent='Email atau password salah.'}
+};
+$('out').onclick=()=>signOut(auth);
+
+let unsub=null,first=true,known=new Set();
+function beep(){
+  try{
+    const c=new (window.AudioContext||window.webkitAudioContext)();
+    const o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;
+    o.start();o.stop(c.currentTime+.25);
+  }catch(e){}
+}
+
+onAuthStateChanged(auth,user=>{
+  $('login').hidden=!!user;$('app').hidden=!user;
+  if(unsub){unsub();unsub=null}
+  if(!user)return;
+  first=true;known=new Set();
+  unsub=onSnapshot(query(collection(db,'orders'),orderBy('createdAt','desc')),snap=>{
+    let baru=false;
+    snap.docs.forEach(d=>{if(!known.has(d.id)){known.add(d.id);if(!first&&d.data().status==='baru')baru=true}});
+    if(baru)beep();
+    first=false;
+    $('list').innerHTML=snap.docs.map(d=>{
+      const o=d.data();
+      const items=(o.items||[]).map(i=>`<div class="r"><span>${esc(i.qty)}x ${esc(i.kopi)} (${esc(i.versi)})</span><span>${rp(i.harga)}</span></div>`+
+        (i.topping&&i.topping.length?`<div class="s">+ ${i.topping.map(esc).join(', ')}</div>`:'')).join('');
+      const done=o.status==='selesai';
+      return `<div class="card ${done?'done':''}">
+        <div class="r"><b>${esc(o.no)} · ${esc(o.nama||'Tanpa nama')}</b><span>${esc(o.when)}</span></div>
+        ${items}
+        <div class="r t"><span>TOTAL</span><span>${rp(o.total)}</span></div>
+        ${done?'':`<button data-id="${d.id}">Selesai dibuat</button>`}
+      </div>`}).join('')||'<div class="card">Belum ada pesanan.</div>';
+  },err=>{$('list').textContent='Gagal memuat pesanan. Cek Security Rules.'});
+});
+
+$('list').onclick=async e=>{
+  const id=e.target.dataset.id;if(!id)return;
+  try{await updateDoc(doc(db,'orders',id),{status:'selesai'})}catch(err){alert('Gagal memperbarui.')}
+};
+</script>
+</body>
+</html>
